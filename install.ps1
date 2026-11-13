@@ -28,10 +28,69 @@ if ($winStatus -match "permanently activated") {
     Write-Host "Status: $($winStatus.Trim())" -ForegroundColor Red
 }
 
-# Office installation detection
+# Office Click-to-Run & Microsoft 365 Subscription Check
 Write-Host ""
-Write-Host "OFFICE INFORMATION" -ForegroundColor Yellow
-Write-Host "------------------"
+Write-Host "MICROSOFT 365 / SUBSCRIPTION STATUS" -ForegroundColor Yellow
+Write-Host "-----------------------------------"
+
+$c2rPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+if (Test-Path $c2rPath) {
+    $c2r = Get-ItemProperty $c2rPath -ErrorAction SilentlyContinue
+    if ($c2r.ProductReleaseIds) {
+        Write-Host "Installed SKUs: $($c2r.ProductReleaseIds)"
+    }
+    if ($c2r.VersionToReport) {
+        Write-Host "Office Version: $($c2r.VersionToReport)"
+    }
+}
+
+$vnextReg = "HKCU:\SOFTWARE\Microsoft\Office\16.0\Common\Licensing\LicensingNext"
+$m365Found = $false
+
+if (Test-Path $vnextReg) {
+    $props = Get-ItemProperty $vnextReg -ErrorAction SilentlyContinue
+    $products = $props.PSObject.Properties | Where-Object {
+        $_.Name -notmatch "^PS" -and $_.Value -eq 2
+    }
+
+    if ($products) {
+        $m365Found = $true
+        foreach ($prod in $products) {
+            Write-Host "Subscription SKU: $($prod.Name)"
+            Write-Host "License Mode:     Modern Subscription (vNext Active)" -ForegroundColor Green
+        }
+    }
+}
+
+# Check Microsoft's built-in vnextdiag.ps1 if available for user/tenant details
+$vnextScripts = @(
+    "$env:ProgramFiles\Microsoft Office\Office16\vnextdiag.ps1",
+    "${env:ProgramFiles(x86)}\Microsoft Office\Office16\vnextdiag.ps1"
+)
+
+foreach ($vScript in $vnextScripts) {
+    if (Test-Path $vScript) {
+        $vOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $vScript -action list 2>$null
+        $licensedLines = $vOutput | Where-Object { $_ -match "State\s*:\s*Licensed|Email\s*:|Product\s*:" }
+        if ($licensedLines) {
+            $m365Found = $true
+            Write-Host ""
+            Write-Host "vNext License Details:" -ForegroundColor Cyan
+            foreach ($line in $licensedLines) {
+                Write-Host "  $($line.Trim())" -ForegroundColor Green
+            }
+        }
+    }
+}
+
+if (-not $m365Found) {
+    Write-Host "Status: No active Microsoft 365 subscription found in current user registry." -ForegroundColor Gray
+}
+
+# Legacy / Perpetual Office Licensing (OSPP.VBS)
+Write-Host ""
+Write-Host "PERPETUAL / LEGACY OFFICE LICENSING (OSPP)" -ForegroundColor Yellow
+Write-Host "------------------------------------------"
 
 $paths = @(
     "$env:ProgramFiles\Microsoft Office\Office16\OSPP.VBS",
